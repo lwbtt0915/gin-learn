@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -20,12 +21,47 @@ var (
 	redisExpireTime = 5 * time.Minute
 )
 
+type CustomTime time.Time
+
+const timeLayout = "2006-01-02 15:04:05"
+
+// UnmarshalJSON 实现json.Unmarshaler接口，用于Gin自动绑定
+func (ct *CustomTime) UnmarshalJSON(data []byte) error {
+	// 去除字符串两端的引号
+	var timeStr string
+	if err := json.Unmarshal(data, &timeStr); err != nil {
+		return err
+	}
+
+	// 解析时间字符串
+	t, err := time.Parse(timeLayout, timeStr)
+	if err != nil {
+		return fmt.Errorf("时间格式错误，期望格式：%s，实际值：%s", timeLayout, timeStr)
+	}
+
+	// 赋值给自定义时间类型
+	*ct = CustomTime(t)
+	return nil
+}
+
+// String 自定义输出格式（可选）
+func (ct CustomTime) String() string {
+	return time.Time(ct).Format(timeLayout)
+}
+
 type User struct {
 	ID       int       `gorm:"primary_key" json:"id"`
 	Name     string    `gorm:"size:50;not null" json:"name"`
 	Email    string    `gorm:"size:100;not null;unique" json:"email"`
 	CreateAt time.Time `json:"created_at"`
 	UpdateAt time.Time `json:"updated_at"`
+}
+
+type UserRequest struct {
+	Name     string     `json:"name"`
+	Email    string     `json:"email"`
+	CreateAt CustomTime `json:"createAt"`
+	UpdateAt CustomTime `json:"updateAt"`
 }
 
 func initMysql() error {
@@ -71,7 +107,7 @@ func main() {
 
 	r := gin.Default()
 
-	api := r.Group("api/v1/users")
+	api := r.Group("/api/v1/users")
 	{
 		api.POST("", createUser)       // 创建用户
 		api.GET("/:id", getUser)       // 查询用户
@@ -81,21 +117,27 @@ func main() {
 	}
 
 	// 启动服务
-	fmt.Println("server running on http://127.0.0.1:8080")
-	r.Run(":8080")
+	fmt.Println("server running on http://127.0.0.1:8068")
+	r.Run(":8068")
 }
 
 // createUser 创建用户（仅写MySQL，不写缓存）
 func createUser(c *gin.Context) {
-	var req User
+	var req UserRequest
+
 	// 绑定请求体
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	var user User
+	user.Name = req.Name
+	user.Email = req.Email
+	user.CreateAt = time.Time(req.CreateAt)
+	user.UpdateAt = time.Time(req.UpdateAt)
 	// 写入MySQL
-	if err := db.Create(&req).Error; err != nil {
+	if err := db.Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
