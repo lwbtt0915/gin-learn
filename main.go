@@ -189,7 +189,7 @@ func updateUser(c *gin.Context) {
 	cacheKey := fmt.Sprintf("user:%s", id)
 
 	var req User
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
